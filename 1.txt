@@ -1,1 +1,311 @@
 
+import PropTypes from "prop-types";
+import { connect } from "react-redux";
+import {
+	Route, Switch, useParams, withRouter
+} from "react-router-dom";
+import React, {
+	createRef, useEffect, useState, useMemo
+} from "react";
+import { C } from "constants";
+import { useMutation, useQuery } from "@apollo/client";
+import GET_SEARCH_ENGINE_SYNONYMS from "graphQL/getSearchEngineSynonyms";
+import REMOVE_ITEM from "graphQL/deleteSearchEngineSynonym";
+import DeleteButton from "Elements/Tools/DeleteButton";
+import Scrollbar from "Elements/Tools/Scrollbar";
+import Pagination from "Elements/Tools/Pagination";
+import {
+	arraysWithSameValues, checkAdmin, debounce, filter
+} from "utils";
+import { openPopin, closePopIn } from "actions";
+import ReactLoading from "Elements/Tools/ReactLoading";
+import {
+	changeKnowledgeBasePagination,
+	saveAllMasterWordId,
+	saveSearchEngineSynonyms
+} from "../../../store/actions/searchEngine";
+import MasterWordItem from "./MasterWordItem";
+import SynonymEditor from "../Editor/SynonymEditor";
+import MasterWordOrderActions from "./MasterWordOrderActions";
+import MasterWordContentHeader from "./MasterWordContentHeader";
+import MasterWordBaseHeader from "./MasterWordBaseHeader";
+import { withAuthData } from "../../../decorators/AuthContext";
+import {
+	applySearch, getPaginationInfo, getStartAndEnd, removeSynonymGroup, extractObjArrPropstoIdArr,
+	extractObjArrPropstoMasterWordArr
+} from "../utils";
+
+const MasterWordList = ({
+	projectName,
+	lang,
+	_openDeletionConfirmation,
+	authData,
+	allMasterWordsId,
+	_saveAllMasterWordId,
+	orderBy,
+	knowledgeBasePagination,
+	currentMasterWord,
+	_changeKnowledgeBasePagination,
+	_saveSearchEngineSynonyms,
+	_closePopIn
+}) => {
+	let anchor = createRef();
+	const params = useParams();
+	const { themeId } = params;
+
+	const GET_QUERY_VARS = { lang, projectName, themeId };
+
+	const [ searchExpression, setSearchExpression ] = useState("");
+
+	const initScroll = () => {
+		if (anchor && anchor.scrollIntoView) {
+			anchor.scrollIntoView({ block: "end", behavior: "smooth" });
+		}
+	};
+
+	const {
+		loading,
+		data
+	} = useQuery(GET_SEARCH_ENGINE_SYNONYMS, {
+		variables: GET_QUERY_VARS,
+		fetchPolicy: "cache-first"
+	});
+	const [ removeItem ] = useMutation(REMOVE_ITEM);
+
+	const debounceRemoveItem = useMemo(() => debounce(removeItem, 500));
+
+	const searchEngineSynonyms = data && data.getSearchEngineSynonyms;
+
+	useEffect(() => {
+		_saveSearchEngineSynonyms(searchEngineSynonyms);
+	}, [ searchEngineSynonyms ]);
+
+	// extract master word "ID" from searchEngineSynonyms and group in array
+	const masterWordIdArr = extractObjArrPropstoIdArr(searchEngineSynonyms);
+
+	// extract master word from searchEngineSynonyms and group in array and
+	// it is used for pagination
+	const allMasterWords = extractObjArrPropstoMasterWordArr(searchEngineSynonyms);
+
+	if (!arraysWithSameValues(masterWordIdArr, allMasterWordsId)) {
+		_saveAllMasterWordId(masterWordIdArr);
+	}
+
+	const [ state, setState ] = useState({
+		displaySearchEngineSynonymData: [],
+		editorMasterWordIdarr: []
+	});
+
+	const { displaySearchEngineSynonymData, editorMasterWordIdarr } = state;
+
+	// filter Status by defaut, do not add searchEngineSynnyom
+	// or data in denpendencies which will cause rerender
+	useEffect(() => {
+		const filterContent = searchEngineSynonyms
+			&& applySearch(searchEngineSynonyms, searchExpression).sort(
+				(masterWord1, masterWord2) => filter(masterWord1, masterWord2, orderBy.value
+					? orderBy
+					: {
+						value: C.STATUS,
+						asc: false
+					}, {})
+			);
+
+		const filterContentId = extractObjArrPropstoIdArr(filterContent);
+
+		setState({
+			...state,
+			displaySearchEngineSynonymData: filterContent,
+			editorMasterWordIdarr: filterContentId
+		});
+	}, [ allMasterWordsId, knowledgeBasePagination, orderBy, searchExpression ]);
+
+	// synchronize item in the state which has been changed in remote
+	// it will not change the order in state
+	useEffect(() => {
+		const newStateWithoutChangeOrder = displaySearchEngineSynonymData
+			&& displaySearchEngineSynonymData.map(
+				(stateItem) => {
+					const results = searchEngineSynonyms && searchEngineSynonyms.filter(
+						(remoteItem) => remoteItem.id === stateItem.id
+					);
+					const newStateitem = results ? results[0] : {};
+					return newStateitem;
+				}
+			);
+		const newEditorMWWithoutChangeOrder = extractObjArrPropstoIdArr(newStateWithoutChangeOrder);
+		setState({
+			...state,
+			displaySearchEngineSynonymData: newStateWithoutChangeOrder,
+			editorMasterWordIdarr: newEditorMWWithoutChangeOrder
+		});
+	}, [ searchEngineSynonyms ]);
+
+	// Sliced master words list for in current page 1.start 2.end
+	const startAndEnd = getStartAndEnd(knowledgeBasePagination || 0);
+
+	const currentMasterWords = Array.isArray(displaySearchEngineSynonymData)
+		&& displaySearchEngineSynonymData
+		? displaySearchEngineSynonymData
+		.slice(startAndEnd[0], startAndEnd[1]) : [];
+
+	// Pagination count
+	const currentMW = currentMasterWord || "";
+	const index = allMasterWords && allMasterWords.indexOf(currentMW);
+
+	// 1.totalPagination 2.totalCurentNumber 3.totalNumber
+	const paginationInfo = getPaginationInfo(displaySearchEngineSynonymData, currentMasterWords);
+
+	if (!data) {
+		return (
+			<div className="master-word-list-container">
+				<ReactLoading className="main-loader dark-loader" />
+			</div>
+		);
+	}
+
+	return (
+		<div className="intent-list">
+			<MasterWordContentHeader updateSearchSynonym={setSearchExpression} />
+			<Scrollbar>
+				<React.Fragment>
+					<div ref={(ref) => (anchor = ref)} />
+					<ul className="intent-list-content">
+						<MasterWordBaseHeader />
+						<div className="intent-action-container">
+							<MasterWordOrderActions />
+
+							{/* page num displayed on top right corner */}
+							<p>
+								[{startAndEnd[0] + 1} - {startAndEnd[0] + paginationInfo[1]}] /{paginationInfo[2]}
+							</p>
+
+						</div>
+
+						{/* do not use index as key,leave synonym to item ID which is unique */}
+						{
+							currentMasterWords
+								&& currentMasterWords.length
+								? (
+									currentMasterWords.map(
+										(synonymItem) => (
+											<li className="master-word-list-item" key={synonymItem.id}>
+												<MasterWordItem
+													item={synonymItem}
+												/>
+												{
+													checkAdmin(authData)
+													&& <DeleteButton
+														className="delete-faq"
+														onClick={() => {
+															if (synonymItem.projectName === projectName) {
+																_openDeletionConfirmation(
+																	synonymItem.masterWord,
+																	removeSynonymGroup(
+																		debounceRemoveItem,
+																		synonymItem,
+																		GET_QUERY_VARS,
+																		_closePopIn
+																	)
+																);
+
+																setState({
+																	...state,
+																	displaySearchEngineSynonymData: displaySearchEngineSynonymData
+																		&& displaySearchEngineSynonymData.filter(
+																			(item) => item.id !== synonymItem.id
+																		)
+																});
+															} else {
+																Alert.success(__("Promote"));
+															}
+														}}
+														id="delete-faq"
+														content={__("TooltipDeleteElement")}
+														className1={"rootWordListDelBtn"}
+													/>
+												}
+											</li>
+										)
+									)
+								) : (
+									// do not remove currentMasterWords, otherwise
+									// we has small chance to see it when loading
+									currentMasterWords && <p className="error-message">{__("NoSynonym")}</p>
+								)
+						}
+
+						<Pagination
+							totalPagination={paginationInfo[0]}
+							onUpdate={initScroll}
+							pagination={knowledgeBasePagination}
+							index={index}
+							currentIntent={currentMasterWord}
+							changePage={_changeKnowledgeBasePagination}
+						/>
+					</ul>
+				</React.Fragment>
+			</Scrollbar>
+
+			<Switch>
+				<Route
+					path={`/${projectName}/${C.KNOWLEDGEBASE}/${themeId}/:id`}
+					render={() => (
+						<SynonymEditor
+							themeId={themeId}
+							editorMasterWordIdarr={editorMasterWordIdarr}
+							searchEngineSynonyms={searchEngineSynonyms}
+						/>
+					)}
+				/>
+			</Switch>
+		</div>
+	);
+};
+
+MasterWordList.propTypes = {
+	_openDeletionConfirmation: PropTypes.func,
+	_saveAllMasterWordId: PropTypes.func,
+	allMasterWordsId: PropTypes.array,
+	authData: PropTypes.object,
+	projectName: PropTypes.string,
+	lang: PropTypes.string,
+	orderBy: PropTypes.object,
+	knowledgeBasePagination: PropTypes.number,
+	currentMasterWord: PropTypes.string,
+	_changeKnowledgeBasePagination: PropTypes.func,
+	_saveSearchEngineSynonyms: PropTypes.func,
+	_closePopIn: PropTypes.func
+};
+
+export default connect(
+	({ browser, searchEngine }) => ({
+		projectName: browser.currentProject,
+		lang: browser.lang,
+		orderBy: browser.orderBy,
+		knowledgeBasePagination: searchEngine.knowledgeBasePagination,
+		allMasterWordsId: searchEngine.allMasterWordsId,
+		currentMasterWord: searchEngine.currentMasterWord
+	}),
+	(dispatch) => ({
+		_closePopIn: () => dispatch(closePopIn()),
+		_saveSearchEngineSynonyms: (searchEngineSynonyms) => dispatch(
+			saveSearchEngineSynonyms(searchEngineSynonyms)
+		),
+		_changeKnowledgeBasePagination: (index) => dispatch(
+			changeKnowledgeBasePagination(index)
+		),
+		_saveAllMasterWordId: (allMasterWordsId) => dispatch(
+			saveAllMasterWordId(allMasterWordsId)
+		),
+		_openDeletionConfirmation: (masterWord, mutation) => dispatch(
+			openPopin({
+				status: C.DELETE_SYNONYM_GROUP,
+				popinData: {
+					masterWord,
+					deleteSynonymGroup: mutation
+				}
+			})
+		)
+	})
+)(withRouter(withAuthData(MasterWordList)));
