@@ -1,0 +1,110 @@
+import PropTypes from "prop-types";
+import React, { useState, useMemo } from "react";
+import { connect } from "react-redux";
+import { withRouter } from "react-router-dom";
+import { useMutation } from "@apollo/client";
+import ADD_SYNONYM from "graphQL/updateSearchEngineSynonymTranslation";
+import ADD_SEARCH_ENGINE_SYNONYM from "graphQL/addSearchEngineSynonyms";
+import { debounce } from "utils";
+import TextInput from "../../IntentEditor/Editor/Inputs/TextInput";
+import {
+	updateItemToDB,
+	updateSynonymToCache,
+	validateSynonymExpression,
+	getItemFromCache
+} from "../utils/index";
+
+const AddSynonym =	({
+	id,
+	themeId,
+	projectName,
+	currentProject,
+	lang
+}) => {
+	// // console.log("id in addSynoynym", id);
+	// // console.log("masterword in addsynnym", masterWord);
+	// const GET_QUERY_VARS = { lang, projectName: currentProject, themeId };
+	// const item = getItemFromCache(GET_QUERY_VARS, id, projectName);
+	// // const item1 = item && JSON.parse(JSON.stringify(item.synonyms));
+	// console.log("type", typeof (item.synonyms));
+
+	const [ synonym, setSynonym ] = useState("");
+
+	const [ addSynonymMutation ] = useMutation(ADD_SYNONYM);
+	const [ addSearchEngineSynonyms ] = useMutation(ADD_SEARCH_ENGINE_SYNONYM);
+
+	const _updateItemToDB = useMemo(() => debounce(updateItemToDB, 500), []);
+
+	const handleChange = (value) => {
+		validateSynonymExpression(synonym, synonymsFromCache);
+		updateSynonymToCache(
+			{
+				variables: GET_QUERY_VARS,
+				id,
+				projectName,
+				oldSynonym: null,
+				newSynonym: value,
+				action: "ADD"
+			}
+		);
+		_updateItemToDB({
+			id,
+			projectName,
+			currentProject,
+			mutation: currentProject === projectName ? addSynonymMutation : addSearchEngineSynonyms,
+			attribute: "synonyms",
+			syn: true,
+			lang,
+			vars: GET_QUERY_VARS
+		});
+	};
+
+	const onBlurAction = (synonym) => {
+		handleChange(synonym);
+		setSynonym("");
+	};
+
+	return (
+		<div className="row">
+			<div className="cell synonym" data-title="Synonym">
+				<li>
+					<TextInput
+						htmlInput
+						className="synonym-input"
+						type="text"
+						value={synonym}
+						onChange={(content) => setSynonym(content)}
+						placeholder={__("AddSynonymPlaceholde")}
+						onBlur={() => onBlurAction(synonym)}
+						onKeyPress={(e) => {
+							if (e.charCode === 13) {
+								handleChange(synonym);
+								setSynonym("");
+							}
+						}}
+					/>
+				</li>
+			</div>
+			<div className="cell createdby" data-title="Created by">
+			</div>
+			<div className="cell promote" data-title="ID">
+			</div>
+			<div className="cell"></div>
+		</div>
+	);
+};
+
+AddSynonym.propTypes = {
+	projectName: PropTypes.string,
+	currentProject: PropTypes.string,
+	id: PropTypes.string,
+	themeId: PropTypes.string,
+	lang: PropTypes.string
+};
+
+export default connect(
+	({ browser }) => ({
+		currentProject: browser.currentProject,
+		lang: browser.lang
+	})
+)(withRouter(AddSynonym));
