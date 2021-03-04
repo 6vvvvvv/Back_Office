@@ -1,4 +1,4 @@
-# Back_Office
+# Back_Office Credited by KMB Labs
 
 ## 1.Intent Category
 ![image](https://github.com/6vvvvvv/Back_Office/blob/master/BackOffice/1.intent%20category.jpg)
